@@ -1448,12 +1448,13 @@ async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
     return false;
   }
 
-  /*
+
   // Faccio il delete per oggi
+  //TODO: Se devo caricare più files insieme, ricordarsi di caricare un unico file con tutto dentro
   if (!(await deleteCarteCredito())) {
     return false;
   }
-  */
+  
 
   // Elaboro il contenuto, riga per riga, del file e interagisco con il DB
   for (const row of results) {
