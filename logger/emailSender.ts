@@ -17,15 +17,15 @@ export async function sendLogSummary(
 
   let htmlContent: string = "";
   let replacements: Record<string, string | number> = {};
+  let templatePath: string;
+  let deltaColor: string = "";
+  let formattedDelta: string = "";
 
   switch (fileType) {
     case "Ordinato":
       // Carica il template HTML
-      const templatePath = path.join(__dirname, "ordinatoSummary.html");
+      templatePath = path.join(__dirname, "ordinatoSummary.html");
       htmlContent = fs.readFileSync(templatePath, "utf8");
-
-      let deltaColor = "";
-      let formattedDelta = "";
 
       if (Number(SummaryInfos["DELTA"]) > 0) {
         formattedDelta = `+${Number(SummaryInfos["DELTA"])}`;
@@ -49,6 +49,27 @@ export async function sendLogSummary(
         "VAL CODICE 2": SummaryInfos["WARN"] ?? 0,
         "VAL DELTA": formattedDelta ?? "N/A",
         "DELTA COLOR": deltaColor,
+        //   "LISTA CAMBIO GESTIONE": cambioGestioneHtml,
+        "LOG DUMP": logSummary || "Nessun log disponibile",
+      };
+
+      break;
+
+    case "Carte Promo":
+      // Carica il template HTML
+      templatePath = path.join(__dirname, "promoSummary.html");
+      htmlContent = fs.readFileSync(templatePath, "utf8");
+
+      // Definizione dei placeholder e dei loro valori
+      replacements = {
+        DATA: new Date(SummaryInfos["DATE"]).toLocaleString("it-IT", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+        }),
+        "VAL CODICE 0": SummaryInfos["OK"] ?? 0,
+        "VAL CODICE 1": SummaryInfos["ERROR"] ?? 0,
+        "VAL CODICE 2": SummaryInfos["WARN"] ?? 0,
         //   "LISTA CAMBIO GESTIONE": cambioGestioneHtml,
         "LOG DUMP": logSummary || "Nessun log disponibile",
       };

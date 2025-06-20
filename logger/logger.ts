@@ -37,21 +37,21 @@ export const logger = createLogger({
 
     // file per tutti i log di livello info e superiore
     new transports.File({
-      filename: path.join(__dirname, "..", "..", "logs", "app.log"),
+      filename: path.join(__dirname, "..", "logs", "app.log"),
       level: "info",
       format: combine(timestamp({ format: "YYYY-MM-DD HH:mm:ss" }), myFormat),
     }),
 
     // file per gli errori
     new transports.File({
-      filename: path.join(__dirname, "..", "..", "logs", "error.log"),
+      filename: path.join(__dirname, "..", "logs", "error.log"),
       level: "error",
       format: combine(timestamp({ format: "YYYY-MM-DD HH:mm:ss" }), myFormat),
     }),
 
     // file per i debug (tutti i debug)
     new transports.File({
-      filename: path.join(__dirname, "..", "..", "logs", "debug.log"),
+      filename: path.join(__dirname, "..", "logs", "debug.log"),
       level: "debug",
       format: combine(timestamp({ format: "YYYY-MM-DD HH:mm:ss" }), myFormat),
     }),

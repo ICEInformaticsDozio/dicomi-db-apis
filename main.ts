@@ -998,7 +998,7 @@ async function upsertOrdinato(
     }
   } catch (err) {
     logger.error(
-      `❌ Errore durante l'upsert per ${ordinatoTable}: ${impiantoCodice}, ${articolo}, ${dataOrdinato}, ${ordinato}. ${err}`,
+      `❌ Errore di inserimento in ${ordinatoTable}: ${impiantoCodice}, ${articolo}, ${dataOrdinato}, ${ordinato}. ${err}`,
       { mail_log: true }
     );
     return 1;
@@ -1007,6 +1007,11 @@ async function upsertOrdinato(
 
 // GESTIONE FILE: CARTE PROMO - OK
 async function elaboraCartePromo(results: any[], fileHeaders: String[]) {
+  // Payload che contiene i dati da mostrare nel log
+  const SummaryInfos: any = {};
+
+  logger.info("🚀 Script avviato con successo", { mail_log: true });
+
   let righeModificate = 0;
   let righeSaltate = 0;
   let righeErrore = 0;
@@ -1024,17 +1029,35 @@ async function elaboraCartePromo(results: any[], fileHeaders: String[]) {
   ];
   // const articoliMap = await articoliMapping();
 
+  // 1) Controllo che il file non sia vuoto
+  if (results.length === 0) {
+    logger.error("Errore: il file non contiene righe di dati.");
+    // Mail di errore
+    try {
+      await sendError("Vuoto", "Carte Promo", null);
+    } catch (error) {
+      logger.error("❌ Errore nell'invio dell'email:", error);
+    }
+    return false;
+  }
+
   const expectedHeaders = ["PV", "TIPO", "GIORNO", "TOTALE"];
 
-  // 1) Controllo che gli header del file siano corretti
+  // 2) Controllo che gli header del file siano corretti
   if (!(await equalList(fileHeaders, expectedHeaders))) {
     logger.error(
       `Errore: gli header del file non sono quelli previsti. Attuali: ${fileHeaders} vs Previsti ${expectedHeaders}`
     );
+    // Mail di errore
+    try {
+      await sendError("Headers", "Carte Promo", null);
+    } catch (error) {
+      logger.error("❌ Errore nell'invio dell'email:", error);
+    }
     return false;
   }
 
-  // 2) Controllo che le chiavi del file non siano duplicate
+  // 3) Controllo che le chiavi del file non siano duplicate
   const checkDuplicates = await checkDuplicatedRows(results, [
     "PV",
     "TIPO",
@@ -1049,6 +1072,12 @@ async function elaboraCartePromo(results: any[], fileHeaders: String[]) {
         2
       )}`
     );
+    // Mail di errore
+    try {
+      await sendError("Chiavi", "Carte Promo", null);
+    } catch (error) {
+      logger.error("❌ Errore nell'invio dell'email:", error);
+    }
     return false;
   }
 
@@ -1078,8 +1107,14 @@ async function elaboraCartePromo(results: any[], fileHeaders: String[]) {
     // 1) Controllo se l'impianto è valido, in base all'anagrafica nel DB
     if (!impiantiMap.includes(impiantoCodice)) {
       logger.error(
-        "Il valore di impianto non è presente nel database di Dicomi: ",
-        row
+        `❌ Impianto non è presente nel database: ${JSON.stringify(
+          row,
+          null,
+          2
+        )}`,
+        {
+          mail_log: true,
+        }
       );
 
       righeErrore += 1;
@@ -1089,8 +1124,14 @@ async function elaboraCartePromo(results: any[], fileHeaders: String[]) {
     // 2) Controllo se il campo TipoTrs è valido
     if (!tipoTrsList.includes(tipo)) {
       logger.error(
-        "Il valore di Tipo Trs non è presente nella lista dichiarata: ",
-        row
+        `❌ Tipo TRS non è presente nei valori accettati: ${JSON.stringify(
+          row,
+          null,
+          2
+        )}`,
+        {
+          mail_log: true,
+        }
       );
 
       righeErrore += 1;
@@ -1100,16 +1141,14 @@ async function elaboraCartePromo(results: any[], fileHeaders: String[]) {
     // 3 WARNING) Controllo se l'impianto è abilitato alle carte promo, in base all'anagrafica nel DB
     if (!impiantiAbilitatiMap.includes(impiantoCodice)) {
       logger.warn(
-        "Il valore di impianto non è presente tra gli impianti abilitati alle carte promo nel database di Dicomi: ",
-        row
+        `⚠️ Impianto non abilitato alla ricezione delle carte promo: ${JSON.stringify(
+          row,
+          null,
+          2
+        )}`
       );
       righeNonAbilitate += 1;
     }
-
-    // Nel codice di DM. veniva controllata la data (non vuota), non ho bisogno di farlo, se la data non è valida da errore il DB
-
-    //TODO: Nel codice viene  fatta una delete basata sul codice impianto e sulla data, e poi vengono aggiunte le righe con insert
-    // logger.info(impiantoCodice, tipo, dataCartePromo, totale);
 
     // Faccio l'upsert sul DB
     switch (
@@ -1134,6 +1173,28 @@ async function elaboraCartePromo(results: any[], fileHeaders: String[]) {
   logger.info(`Righe inserite / modificate: ${righeModificate}`);
   logger.info(`Righe ignorate: ${righeSaltate}`);
   logger.info(`Righe andate in errore: ${righeErrore}`);
+  logger.info("🚀 Estrazione terminata con successo", { mail_log: true });
+
+  SummaryInfos["OK"] = righeModificate;
+  SummaryInfos["WARN"] = righeSaltate;
+  SummaryInfos["ERROR"] = righeErrore;
+  SummaryInfos["DATE"] = new Date();
+
+  // Avvio il ricaricamento dati lato Qlik
+  await QlikStartEtlFile("Carte Promo");
+
+  // aspetta che Winston completi tutti i setImmediate interni
+  await new Promise((resolve) => setImmediate(resolve));
+
+  // ora leggi TUTTI i log
+  const logSummary = memoryTransport.getLogSummary();
+
+  // Invia il riepilogo via email
+  try {
+    await sendLogSummary("Carte Promo", logSummary, SummaryInfos);
+  } catch (error) {
+    logger.error("❌ Errore nell'invio dell'email:", error);
+  }
 
   return true;
 }
@@ -1237,7 +1298,12 @@ async function upsertCartePromo(
       .input("Valore", sql.Float, valore)
       .query(query);
 
-    if (result.rowsAffected[0] > 0) {
+    if (!(result.rowsAffected[0] > 0) && valore == 0) {
+      logger.warn(
+        `Nessun upsert effettuato per ${cartePromoTable}: ${impiantoCodice}, ${tipo}, ${dataCartePromo}, ${valore}`
+      );
+      return 4;
+    } else if (result.rowsAffected[0] > 0) {
       logger.info(
         `Upsert effettuato per ${cartePromoTable}: ${impiantoCodice}, ${tipo}, ${dataCartePromo}, ${valore}`
       );
@@ -1250,8 +1316,8 @@ async function upsertCartePromo(
     }
   } catch (err) {
     logger.error(
-      `Errore durante l'upsert per ${cartePromoTable}: ${impiantoCodice}, ${tipo}, ${dataCartePromo}, ${valore}`,
-      err
+      `❌ Errore di inserimento in ${cartePromoTable}: ${impiantoCodice}, ${tipo}, ${dataCartePromo}, ${valore}. ${err}`,
+      { mail_log: true }
     );
     return 1;
   }
