@@ -489,6 +489,10 @@ async function createTipoCarta(tipo: string) {
 
 // GESTIONE FILE: CONSEGNATO - OK
 async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
+  // Payload che contiene i dati da mostrare nel log
+  const SummaryInfos: any = {};
+
+  logger.info("🚀 Script avviato con successo", { mail_log: true });
   let righeModificate = 0;
   let righeSaltate = 0;
   let righeErrore = 0;
@@ -499,15 +503,37 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
 
   const expectedHeaders = ["PV", "PRODOTTO", "DATA_CONSEGNA", "CONSEGNATO"];
 
-  // 1) Controllo che gli header del file siano corretti
+  // 1) Controllo che il file non sia vuoto
+  if (results.length === 0) {
+    logger.error("Errore: il file non contiene righe di dati.");
+
+    // Mail di errore
+    try {
+      await sendError("Vuoto", "Consegnato", null);
+    } catch (error) {
+      logger.error("❌ Errore nell'invio dell'email:", error);
+    }
+
+    return false;
+  }
+
+  // 2) Controllo che gli header del file siano corretti
   if (!(await equalList(fileHeaders, expectedHeaders))) {
     logger.error(
       `Errore: gli header del file non sono quelli previsti. Attuali: ${fileHeaders} vs Previsti ${expectedHeaders}`
     );
+
+    // Mail di errore
+    try {
+      await sendError("Headers", "Consegnato", null);
+    } catch (error) {
+      logger.error("❌ Errore nell'invio dell'email:", error);
+    }
+
     return false;
   }
 
-  // 2) Controllo che le chiavi del file non siano duplicate
+  // 3) Controllo che le chiavi del file non siano duplicate
   const checkDuplicates = await checkDuplicatedRows(results, [
     "PV",
     "PRODOTTO",
@@ -522,6 +548,13 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
         2
       )}`
     );
+
+    // Mail di errore
+    try {
+      await sendError("Chiavi", "Consegnato", null);
+    } catch (error) {
+      logger.error("❌ Errore nell'invio dell'email:", error);
+    }
     return false;
   }
 
@@ -576,8 +609,14 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
     // 1) Controllo se la quantità consegnata è minore di 0
     if (consegnato < 0 || !consegnato) {
       logger.error(
-        "Il valore di consegnato contiene una quantità negativa o nulla: ",
-        row
+        `❌ Il valore di consegnato contiene una quantità negativa o nulla: ${JSON.stringify(
+          row,
+          null,
+          2
+        )}`,
+        {
+          mail_log: true,
+        }
       );
       righeErrore += 1;
       logArray.err += 1;
@@ -589,8 +628,14 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
     // 2) Controllo se il prodotto è valido, in base all'anagrafica nel DB
     if (!art) {
       logger.error(
-        "Il valore di prodotto non è presente nel database di Dicomi: ",
-        row
+        `❌ Articolo non presente nel database: ${JSON.stringify(
+          row,
+          null,
+          2
+        )}`,
+        {
+          mail_log: true,
+        }
       );
       righeErrore += 1;
       logArray.err += 1;
@@ -600,8 +645,14 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
     // 3) Controllo se l'impianto è valido, in base all'anagrafica nel DB
     if (!impiantiMap.includes(impiantoCodice)) {
       logger.error(
-        "Il valore di impianto non è presente nel database di Dicomi: ",
-        row
+        `❌ Impianto non è presente nel database: ${JSON.stringify(
+          row,
+          null,
+          2
+        )}`,
+        {
+          mail_log: true,
+        }
       );
       righeErrore += 1;
       logArray.err += 1;
@@ -648,6 +699,32 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
   logger.info(`Righe inserite / modificate: ${righeModificate}`);
   logger.info(`Righe ignorate: ${righeSaltate}`);
   logger.info(`Righe andate in errore: ${righeErrore}`);
+
+  logger.info("🚀 Estrazione terminata con successo", { mail_log: true });
+
+  SummaryInfos["OK"] = righeModificate;
+
+  SummaryInfos["WARN"] = righeSaltate;
+
+  SummaryInfos["ERROR"] = righeErrore;
+
+  SummaryInfos["DATE"] = new Date();
+
+  // Avvio il ricaricamento dati lato Qlik
+  await QlikStartEtlFile("Consegnato");
+
+  // aspetta che Winston completi tutti i setImmediate interni
+  await new Promise((resolve) => setImmediate(resolve));
+
+  // ora leggi TUTTI i log
+  const logSummary = memoryTransport.getLogSummary();
+
+  // Invia il riepilogo via email
+  try {
+    await sendLogSummary("Consegnato", logSummary, SummaryInfos);
+  } catch (error) {
+    logger.error("❌ Errore nell'invio dell'email:", error);
+  }
 
   return true;
 }
@@ -704,8 +781,8 @@ async function upsertConsegnato(
     }
   } catch (err) {
     logger.error(
-      `Errore durante l'upsert per ${consegnatoTable}: ${impiantoCodice}, ${ArticoloSellin}, ${articolo}, ${dataConsegna}, ${consegnato}`,
-      err
+      `Errore durante l'upsert per ${consegnatoTable}: ${impiantoCodice}, ${ArticoloSellin}, ${articolo}, ${dataConsegna}, ${consegnato}. ${err}`,
+      { mail_log: true }
     );
     return 1;
   }
@@ -768,7 +845,9 @@ async function elaboraOrdinato(
       logger.info("Rilevata DOMENICA, data convertita in: ", dataOrdinato);
     }
   } else {
-    logger.error("Nessuna data nel formato YYYYMMDD trovata nel filename");
+    logger.error(
+      "Errore: Nessuna data nel formato YYYYMMDD trovata nel filename"
+    );
 
     // Invia mail di errore Headers
     try {
@@ -857,7 +936,7 @@ async function elaboraOrdinato(
     // 2) Controllo se l'articolo è valido, in base all'anagrafica nel DB
     if (!articoliMap.includes(articolo)) {
       logger.error(
-        `❌ Articolo non è presente nel database: ${JSON.stringify(
+        `❌ Articolo non presente nel database: ${JSON.stringify(
           row,
           null,
           2
@@ -1329,6 +1408,9 @@ async function elaboraTradingArea(
   results: any[],
   fileHeaders: String[]
 ) {
+  const SummaryInfos: any = {};
+  logger.info("🚀 Script avviato con successo", { mail_log: true });
+
   let righeModificate = 0;
   let righeSaltate = 0;
   let righeErrore = 0;
@@ -1352,15 +1434,7 @@ async function elaboraTradingArea(
     "PREZZO CHIUSURA",
   ];
 
-  // 1) Controllo che gli header del file siano corretti
-  if (!(await equalList(fileHeaders, expectedHeaders))) {
-    logger.error(
-      `Errore: gli header del file non sono quelli previsti. Attuali: ${fileHeaders} vs Previsti ${expectedHeaders}`
-    );
-    return false;
-  }
-
-  // 2) Controllo che nel nome del file ci sia un valore di data valida, da usare come data ordinato
+  // 1) Controllo che nel nome del file ci sia un valore di data valida, da usare come data ordinato
   // Va calcolata ed elaborata la data.
   // La data viene presa dal file, se è Sabato o Domenica, deve diventare il prossimo Lunedì (aggiungo 2 o 1 giorno)
   // Utilizziamo una regex per trovare una sequenza esattamente di 8 cifre
@@ -1388,7 +1462,37 @@ async function elaboraTradingArea(
     return false;
   }
 
-  // 3) Controllo che le chiavi del file non siano duplicate
+  // 2) Controllo che il file non sia vuoto
+  if (results.length === 0) {
+    logger.error("Errore: il file non contiene righe di dati.");
+
+    // Mail di errore
+    try {
+      await sendError("Vuoto", "Trading Area", null);
+    } catch (error) {
+      logger.error("❌ Errore nell'invio dell'email:", error);
+    }
+
+    return false;
+  }
+
+  // 3) Controllo che gli header del file siano corretti
+  if (!(await equalList(fileHeaders, expectedHeaders))) {
+    logger.error(
+      `Errore: gli header del file non sono quelli previsti. Attuali: ${fileHeaders} vs Previsti ${expectedHeaders}`
+    );
+
+    // Mail di errore
+    try {
+      await sendError("Headers", "Trading Area", null);
+    } catch (error) {
+      logger.error("❌ Errore nell'invio dell'email:", error);
+    }
+
+    return false;
+  }
+
+  // 4) Controllo che le chiavi del file non siano duplicate
   const checkDuplicates = await checkDuplicatedRows(results, [
     "PV",
     "PRODOTTO",
@@ -1404,6 +1508,12 @@ async function elaboraTradingArea(
         2
       )}`
     );
+    // Mail di errore
+    try {
+      await sendError("Chiavi", "Trading Area", null);
+    } catch (error) {
+      logger.error("❌ Errore nell'invio dell'email:", error);
+    }
     return false;
   }
 
@@ -1432,8 +1542,14 @@ async function elaboraTradingArea(
     // 1) Controllo se l'articolo è valido, in base all'anagrafica nel DB e non ricade nell'elenco degli articoli da ignorare
     if (!articoliMap.includes(articolo) && !ignoreArticles.includes(articolo)) {
       logger.error(
-        "Il valore di articolo non è presente nel database di Dicomi: ",
-        row
+        `❌ Articolo non presente nel database: ${JSON.stringify(
+          row,
+          null,
+          2
+        )}`,
+        {
+          mail_log: true,
+        }
       );
       righeErrore += 1;
       continue;
@@ -1442,8 +1558,14 @@ async function elaboraTradingArea(
     // 2) Controllo se l'impianto è valido, in base all'anagrafica nel DB
     if (!impiantiMap.includes(impiantoCodice)) {
       logger.error(
-        "Il valore di impianto non è presente nel database di Dicomi: ",
-        row
+        `❌ Impianto non presente nel database: ${JSON.stringify(
+          row,
+          null,
+          2
+        )}`,
+        {
+          mail_log: true,
+        }
       );
       righeErrore += 1;
       continue;
@@ -1452,8 +1574,14 @@ async function elaboraTradingArea(
     // 3) Controllo se l'articolo è da ignorare, in caso salto la riga
     if (ignoreArticles.includes(articolo)) {
       logger.warn(
-        "Il valore di articolo è presente nella lista di articoli da ignorare: ",
-        row
+        `⚠️ Articolo presente nella lista da ignorare: ${JSON.stringify(
+          row,
+          null,
+          2
+        )}`,
+        {
+          mail_log: true,
+        }
       );
       righeSaltate += 1;
       // Non devo comunque scrivere la riga
@@ -1463,8 +1591,14 @@ async function elaboraTradingArea(
     // 4) Controllo se la coppia Indirizzo + bandiera, deve esistere nel DB
     if (!bandieraIndirizzoMap.includes(`${indirizzo}|${bandiera}`)) {
       logger.error(
-        "Il valore di Indirizzo + Bandiera non è presente nel database di Dicomi: ",
-        row
+        `❌ Indirizzo + Bandiera non presente nel database: ${JSON.stringify(
+          row,
+          null,
+          2
+        )}`,
+        {
+          mail_log: true,
+        }
       );
       righeErrore += 1;
       continue;
@@ -1509,6 +1643,28 @@ async function elaboraTradingArea(
   logger.info(`Righe inserite / modificate: ${righeModificate}`);
   logger.info(`Righe ignorate: ${righeSaltate}`);
   logger.info(`Righe andate in errore: ${righeErrore}`);
+  logger.info("🚀 Estrazione terminata con successo", { mail_log: true });
+
+  SummaryInfos["OK"] = righeModificate;
+  SummaryInfos["WARN"] = righeSaltate;
+  SummaryInfos["ERROR"] = righeErrore;
+  SummaryInfos["DATE"] = new Date();
+
+  // Avvio il ricaricamento dati lato Qlik
+  await QlikStartEtlFile("Trading Area");
+
+  // aspetta che Winston completi tutti i setImmediate interni
+  await new Promise((resolve) => setImmediate(resolve));
+
+  // ora leggi TUTTI i log
+  const logSummary = memoryTransport.getLogSummary();
+
+  // Invia il riepilogo via email
+  try {
+    await sendLogSummary("Trading Area", logSummary, SummaryInfos);
+  } catch (error) {
+    logger.error("❌ Errore nell'invio dell'email:", error);
+  }
 
   return true;
 }
@@ -1583,8 +1739,8 @@ async function upsertTradingArea(
     }
   } catch (err) {
     logger.error(
-      `Errore durante l'upsert per ${tradingAreaTable}: ${dataTradingArea}, ${impiantoCodice}, ${articolo}, ${bandiera}, ${indirizzo}, ${main}, ${serv}, ${self}, ${chiusura}`,
-      err
+      `❌ Errore di inserimento in ${tradingAreaTable}: ${dataTradingArea}, ${impiantoCodice}, ${articolo}, ${bandiera}, ${indirizzo}, ${main}, ${serv}, ${self}, ${chiusura}. ${err}`,
+      { mail_log: true }
     );
     return 1;
   }
@@ -1592,6 +1748,9 @@ async function upsertTradingArea(
 
 // GESTIONE FILE: CARTE CREDITO - OK
 async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
+  const SummaryInfos: any = {};
+  logger.info("🚀 Script avviato con successo", { mail_log: true });
+
   let righeModificate = 0;
   let righeSaltate = 0;
   let righeErrore = 0;
@@ -1615,11 +1774,32 @@ async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
     "PRZ ACCR",
   ];
 
-  // 1) Controllo che gli header del file siano corretti
+  // 1) Controllo che il file non sia vuoto
+  if (results.length === 0) {
+    logger.error("Errore: il file non contiene righe di dati.");
+
+    // Mail di errore
+    try {
+      await sendError("Vuoto", "Carte Credito", null);
+    } catch (error) {
+      logger.error("❌ Errore nell'invio dell'email:", error);
+    }
+
+    return false;
+  }
+
+  // 2) Controllo che gli header del file siano corretti
   if (!(await equalList(fileHeaders, expectedHeaders))) {
     logger.error(
       `Errore: gli header del file non sono quelli previsti. Attuali: ${fileHeaders} vs Previsti ${expectedHeaders}`
     );
+
+    // Mail di errore
+    try {
+      await sendError("Headers", "Carte Credito", null);
+    } catch (error) {
+      logger.error("❌ Errore nell'invio dell'email:", error);
+    }
     return false;
   }
 
@@ -1684,8 +1864,14 @@ async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
     // 2) Controllo se il prodotto è valido, in base all'anagrafica nel DB
     if (!art) {
       logger.error(
-        "Il valore di prodotto non è presente nel database di Dicomi: ",
-        row
+        `❌ Articolo non presente nel database: ${JSON.stringify(
+          row,
+          null,
+          2
+        )}`,
+        {
+          mail_log: true,
+        }
       );
       righeErrore += 1;
       continue;
@@ -1694,8 +1880,14 @@ async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
     // 3) Controllo se l'impianto è valido, in base all'anagrafica nel DB
     if (!impiantiMap.includes(impiantoCodice)) {
       logger.error(
-        "Il valore di impianto non è presente nel database di Dicomi: ",
-        row
+        `❌ Impianto non presente nel database: ${JSON.stringify(
+          row,
+          null,
+          2
+        )}`,
+        {
+          mail_log: true,
+        }
       );
       righeErrore += 1;
       continue;
@@ -1748,6 +1940,29 @@ async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
   logger.info(`Righe ignorate: ${righeSaltate}`);
   logger.info(`Righe andate in errore: ${righeErrore}`);
 
+  logger.info("🚀 Estrazione terminata con successo", { mail_log: true });
+
+  SummaryInfos["OK"] = righeModificate;
+  SummaryInfos["WARN"] = righeSaltate;
+  SummaryInfos["ERROR"] = righeErrore;
+  SummaryInfos["DATE"] = new Date();
+
+  // Avvio il ricaricamento dati lato Qlik
+  await QlikStartEtlFile("Carte Credito");
+
+  // aspetta che Winston completi tutti i setImmediate interni
+  await new Promise((resolve) => setImmediate(resolve));
+
+  // ora leggi TUTTI i log
+  const logSummary = memoryTransport.getLogSummary();
+
+  // Invia il riepilogo via email
+  try {
+    await sendLogSummary("Carte Credito", logSummary, SummaryInfos);
+  } catch (error) {
+    logger.error("❌ Errore nell'invio dell'email:", error);
+  }
+
   return true;
 }
 // Questa operazione non deve essere di upsert, ma di DELETE - INSERT
@@ -1775,8 +1990,8 @@ async function deleteCarteCredito() {
     }
   } catch (err) {
     logger.error(
-      `Errore durante il delete sulla tabella ${carteCreditoTable}, query:`,
-      err
+      `❌ Errore durante la cancellazione in ${carteCreditoTable}. ${err}, query:`,
+      { mail_log: true }
     );
     return false;
   }
@@ -1834,8 +2049,8 @@ async function insertCarteCredito(
     }
   } catch (err) {
     logger.error(
-      `Errore durante l'insert per ${carteCreditoTable}: ${trs}, ${dataTimestamp}, ${impiantoCodice}, ${indirizzo}, ${art}, ${cod_prodotto}, ${desc_prodotto}, ${tipo}, ${volume}, ${importo_accr}, ${prz_accr}`,
-      err
+      `❌ Errore durante l'inserimento in ${carteCreditoTable}: ${trs}, ${dataTimestamp}, ${impiantoCodice}, ${indirizzo}, ${art}, ${cod_prodotto}, ${desc_prodotto}, ${tipo}, ${volume}, ${importo_accr}, ${prz_accr}. ${err}, query:`,
+      { mail_log: true }
     );
     return 1;
   }
@@ -1847,6 +2062,9 @@ async function elaboraListDistr(
   results: any[],
   fileHeaders: String[]
 ) {
+  const SummaryInfos: any = {};
+  logger.info("🚀 Script avviato con successo", { mail_log: true });
+
   let righeModificate = 0;
   let righeSaltate = 0;
   let righeErrore = 0;
@@ -1869,15 +2087,7 @@ async function elaboraListDistr(
     "NOTE",
   ];
 
-  // 1) Controllo che gli header del file siano corretti
-  if (!(await equalList(fileHeaders, expectedHeaders))) {
-    logger.error(
-      `Errore: gli header del file non sono quelli previsti. Attuali: ${fileHeaders} vs Previsti ${expectedHeaders}`
-    );
-    return false;
-  }
-
-  // 2) Controllo che nel nome del file ci sia un valore di data valida, da usare come data ordinato
+  // 1) Controllo che nel nome del file ci sia un valore di data valida, da usare come data ordinato
   // Va calcolata ed elaborata la data.
   // La data viene presa dal file, se è Sabato o Domenica, deve diventare il prossimo Lunedì (aggiungo 2 o 1 giorno)
   // Utilizziamo una regex per trovare una sequenza esattamente di 8 cifre
@@ -1900,14 +2110,52 @@ async function elaboraListDistr(
     ); // Nota: i mesi in JS sono zero-indexed
     logger.info("Data trovata:", dataListDistr); // "2025-04-10"
   } else {
-    logger.error("Nessuna data nel formato YYYYMMDD trovata nel filename");
+    logger.error(
+      "Errore: Nessuna data nel formato YYYYMMDD trovata nel filename"
+    );
+
+    // Mail di errore
+    try {
+      await sendError("Data File", "Listino", null);
+    } catch (error) {
+      logger.error("❌ Errore nell'invio dell'email:", error);
+    }
 
     return false;
   }
 
   const scontoFissoMap = await scontoFissoMapping(dataListDistr);
 
-  // 3) Controllo che le chiavi del file non siano duplicate
+  // 2) Controllo che il file non sia vuoto
+  if (results.length === 0) {
+    logger.error("Errore: il file non contiene righe di dati.");
+
+    // Mail di errore
+    try {
+      await sendError("Vuoto", "Listino", null);
+    } catch (error) {
+      logger.error("❌ Errore nell'invio dell'email:", error);
+    }
+
+    return false;
+  }
+
+  // 3) Controllo che gli header del file siano corretti
+  if (!(await equalList(fileHeaders, expectedHeaders))) {
+    logger.error(
+      `Errore: gli header del file non sono quelli previsti. Attuali: ${fileHeaders} vs Previsti ${expectedHeaders}`
+    );
+
+    // Mail di errore
+    try {
+      await sendError("Headers", "Listino", null);
+    } catch (error) {
+      logger.error("❌ Errore nell'invio dell'email:", error);
+    }
+    return false;
+  }
+
+  // 4) Controllo che le chiavi del file non siano duplicate
   const checkDuplicates = await checkDuplicatedRows(results, [
     "PV",
     "PRODOTTO",
@@ -1921,6 +2169,13 @@ async function elaboraListDistr(
         2
       )}`
     );
+
+    // Mail di errore
+    try {
+      await sendError("Chiavi", "Listino", null);
+    } catch (error) {
+      logger.error("❌ Errore nell'invio dell'email:", error);
+    }
     return false;
   }
 
@@ -1960,8 +2215,14 @@ async function elaboraListDistr(
     //1) Controllo se l'impianto è valido, in base all'anagrafica nel DB
     if (!impiantiMap.includes(impiantoCodice)) {
       logger.error(
-        "Il valore di impianto non è presente nel database di Dicomi: ",
-        row
+        `❌ Impianto non presente nel database: ${JSON.stringify(
+          row,
+          null,
+          2
+        )}`,
+        {
+          mail_log: true,
+        }
       );
       righeErrore += 1;
       continue;
@@ -1970,8 +2231,14 @@ async function elaboraListDistr(
     // 2) Controllo se l'articolo è valido, in base all'anagrafica nel DB
     if (!articoliMap.includes(articolo)) {
       logger.error(
-        "Il valore di articolo non è presente nel database di Dicomi: ",
-        row
+        `❌ Articolo non presente nel database: ${JSON.stringify(
+          row,
+          null,
+          2
+        )}`,
+        {
+          mail_log: true,
+        }
       );
       righeErrore += 1;
       continue;
@@ -1979,7 +2246,9 @@ async function elaboraListDistr(
 
     //WARNING 3) Controllo sullo sconto fisso, solo per log
     if (scontoFisso) {
-      logger.warn("Impianto a sconto fisso: ", row);
+      logger.warn(
+        `⚠️ Impianto a sconto fisso: ${JSON.stringify(row, null, 2)}`
+      );
     }
 
     // Faccio l'upsert sul DB
@@ -2029,6 +2298,34 @@ async function elaboraListDistr(
   logger.info(`Righe ignorate: ${righeSaltate}`);
   logger.info(`Righe andate in errore: ${righeErrore}`);
   logger.info(`Delta rispetto a ieri: ${formattedDelta}`);
+
+  logger.info("🚀 Estrazione terminata con successo", { mail_log: true });
+
+  SummaryInfos["DELTA"] = await getListiniDelta();
+
+  SummaryInfos["OK"] = righeModificate;
+
+  SummaryInfos["WARN"] = righeSaltate;
+
+  SummaryInfos["ERROR"] = righeErrore;
+
+  SummaryInfos["DATE"] = new Date();
+
+  // Avvio il ricaricamento dati lato Qlik
+  await QlikStartEtlFile("Listino");
+
+  // aspetta che Winston completi tutti i setImmediate interni
+  await new Promise((resolve) => setImmediate(resolve));
+
+  // ora leggi TUTTI i log
+  const logSummary = memoryTransport.getLogSummary();
+
+  // Invia il riepilogo via email
+  try {
+    await sendLogSummary("Listino", logSummary, SummaryInfos);
+  } catch (error) {
+    logger.error("❌ Errore nell'invio dell'email:", error);
+  }
 
   return true;
 }
@@ -2116,8 +2413,8 @@ async function upsertListDistr(
     }
   } catch (err) {
     logger.error(
-      `Errore durante l'upsert per: ${listDistTable}: ${DataListino}, ${ImpiantoCodice}, ${Articolo}, ${PrezzoServito}, ${ScontoServito}, ${PrezzoSelf}, ${ScontoSelf}, ${PrezzoOpt}, ${ScontoOpt}, ${Stacco}, ${Ordinato}, ${Note}`,
-      err
+      `❌ Errore durante l'upsert per: ${listDistTable}: ${DataListino}, ${ImpiantoCodice}, ${Articolo}, ${PrezzoServito}, ${ScontoServito}, ${PrezzoSelf}, ${ScontoSelf}, ${PrezzoOpt}, ${ScontoOpt}, ${Stacco}, ${Ordinato}, ${Note}. ${err}`,
+      { mail_log: true }
     );
     return 1;
   }
