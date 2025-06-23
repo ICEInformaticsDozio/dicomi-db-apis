@@ -6,7 +6,9 @@
   "main": "main.ts",
   "scripts": {
     "dev": "nodemon --ext ts --exec \"npx tsx main.ts\"",
-    "build": "tsc",
+    "build:ts": "tsc",
+    "build:assets": "copyfiles -u 1 \"logger/**/*.html\" .dist/logger",
+    "build": "npm run build:ts && npm run build:assets",
     "start": "pm2 start ecosystem.config.cjs",
     "postinstall": "npm install -g pm2 typescript"
   },
@@ -35,6 +37,7 @@
     "@types/express": "^5.0.0",
     "@types/mssql": "^9.1.7",
     "@types/nodemailer": "^6.4.17",
+    "copyfiles": "^2.4.1",
     "nodemon": "^3.1.9",
     "ts-node": "^10.9.2",
     "tsx": "^4.19.3",
