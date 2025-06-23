@@ -792,9 +792,7 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
   } catch (error) {
     logger.error("❌ Errore nell'invio dell'email:", error);
   }
-
-  process.exit(0);
-
+  
   return true;
 }
 async function upsertConsegnato(
