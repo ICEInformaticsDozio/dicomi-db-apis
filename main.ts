@@ -505,7 +505,7 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
 
   // 1) Controllo che il file non sia vuoto
   if (results.length === 0) {
-    logger.error("Errore: il file non contiene righe di dati.");
+    logger.error("❌ Errore: il file non contiene righe di dati.");
 
     // Mail di errore
     try {
@@ -860,7 +860,7 @@ async function elaboraOrdinato(
 
   // 2) Controllo che il file non sia vuoto
   if (results.length === 0) {
-    logger.error("Errore: il file non contiene righe di dati.");
+    logger.error("❌ Errore: il file non contiene righe di dati.");
     // Invia mail di errore Headers
     try {
       await sendError("Vuoto", "Ordinato", dataOrdinato);
@@ -1110,7 +1110,7 @@ async function elaboraCartePromo(results: any[], fileHeaders: String[]) {
 
   // 1) Controllo che il file non sia vuoto
   if (results.length === 0) {
-    logger.error("Errore: il file non contiene righe di dati.");
+    logger.error("❌ Errore: il file non contiene righe di dati.");
     // Mail di errore
     try {
       await sendError("Vuoto", "Carte Promo", null);
@@ -1464,7 +1464,7 @@ async function elaboraTradingArea(
 
   // 2) Controllo che il file non sia vuoto
   if (results.length === 0) {
-    logger.error("Errore: il file non contiene righe di dati.");
+    logger.error("❌ Errore: il file non contiene righe di dati.");
 
     // Mail di errore
     try {
@@ -1776,7 +1776,7 @@ async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
 
   // 1) Controllo che il file non sia vuoto
   if (results.length === 0) {
-    logger.error("Errore: il file non contiene righe di dati.");
+    logger.error("❌ Errore: il file non contiene righe di dati.");
 
     // Mail di errore
     try {
@@ -2128,7 +2128,7 @@ async function elaboraListDistr(
 
   // 2) Controllo che il file non sia vuoto
   if (results.length === 0) {
-    logger.error("Errore: il file non contiene righe di dati.");
+    logger.error("❌ Errore: il file non contiene righe di dati.");
 
     // Mail di errore
     try {
@@ -2505,7 +2505,7 @@ async function controlloFiles() {
 
           // // CONTROLLO SE IL FILE NON SIA VUOTO
           // if (results.length === 0) {
-          //   logger.error("Errore: il file non contiene righe di dati.");
+          //   logger.error("❌ Errore: il file non contiene righe di dati.");
           //   await moveFile(false, filePath);
           //   continue;
           // }
