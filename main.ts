@@ -8,7 +8,7 @@ import https from "https";
 import fs from "fs";
 import path from "path";
 import csv from "csv-parser";
-import { parse } from "date-fns";
+import { parse, format } from "date-fns";
 import { it } from "date-fns/locale";
 import axios from "axios";
 import { sendLogSummary, sendError } from "./logger/emailSender.js";
@@ -81,6 +81,77 @@ async function QlikStartEtlFile(file: string) {
 // Funzione di parsing con formato “EEE, dd MMM”
 function parseKey(key: string): Date {
   return parse(key, "EEE, dd MMM", new Date(), { locale: it });
+}
+
+async function getConsegnatoDelta(payload: any[]) {
+  /**
+   * Converte stringhe tipo "Sab, 07 Giu" in "YYYY-MM-DD"
+   */
+  function italianToIso(itDateStr: string): string {
+    // 1) Prendo solo "07 Giu" da "Sab, 07 Giu"
+    const datePart = itDateStr.split(", ")[1]; // "07 Giu"
+    // 2) Con toLocaleLowerCase forziamo minuscole con locale
+    const lower = datePart.toLocaleLowerCase("it"); // "07 giu"
+
+    // 3) Parse usando solo giorno e mese
+    const parsed = parse(lower, "dd MMM", new Date(), { locale: it });
+
+    // 4) Format in ISO
+    return format(parsed, "yyyy-MM-dd");
+  }
+
+  async function getDelta(isoDate: string) {
+    // qui isoDate è già "2025-06-07", etc.
+    try {
+      const pool = await getDatabasePool();
+      const query = `
+        SELECT
+          (
+            SELECT COUNT(*) FROM ${consegnatoTable}
+            WHERE CAST(DataConsegna AS DATE) = CAST(@dateString AS DATE)
+          )
+          -
+          (
+            SELECT COALESCE(AVG(Conteggio), 0)
+            FROM (
+              SELECT
+                CAST(DataConsegna AS DATE) AS Giorno,
+                COUNT(*) AS Conteggio
+              FROM ${consegnatoTable}
+              WHERE
+                DATEPART(dw, CAST(DataConsegna AS DATE)) = DATEPART(dw, CAST(@dateString AS DATE))
+                AND CAST(DataConsegna AS DATE) >= DATEADD(DAY, -21, CAST(@dateString AS DATE))
+                AND CAST(DataConsegna AS DATE) < CAST(@dateString AS DATE)
+              GROUP BY CAST(DataConsegna AS DATE)
+            ) AS tab
+          ) AS Finale
+      `;
+      const result = (
+        await pool
+          .request()
+          .input("dateString", sql.VarChar, isoDate)
+          .query(query)
+      ).recordset;
+      return result[0].Finale;
+    } catch (err) {
+      logger.error(`Errore nel calcolo del delta per data ${isoDate}:`, err);
+      return 0;
+    }
+  }
+
+  // Mappiamo il payload calcolando ISO date + delta
+  const withDelta = await Promise.all(
+    payload.map(async (item: any) => {
+      const iso = italianToIso(item.date);
+      const deltaNum = await getDelta(iso);
+      return {
+        ...item,
+        delta: deltaNum,
+      };
+    })
+  );
+
+  return withDelta;
 }
 
 async function getListiniDelta() {
@@ -690,7 +761,7 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
   }
 
   elencoDate.sort(
-    (a: any, b: any) => parseKey(a.date).getTime() - parseKey(b.date).getTime()
+    (a: any, b: any) => parseKey(b.date).getTime() - parseKey(a.date).getTime()
   );
 
   logger.info(`Il file Consegnato è stato elaborato`);
@@ -699,16 +770,12 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
   logger.info(`Righe inserite / modificate: ${righeModificate}`);
   logger.info(`Righe ignorate: ${righeSaltate}`);
   logger.info(`Righe andate in errore: ${righeErrore}`);
-
   logger.info("🚀 Estrazione terminata con successo", { mail_log: true });
-
   SummaryInfos["OK"] = righeModificate;
-
   SummaryInfos["WARN"] = righeSaltate;
-
   SummaryInfos["ERROR"] = righeErrore;
-
   SummaryInfos["DATE"] = new Date();
+  SummaryInfos["LIST"] = await getConsegnatoDelta(elencoDate);
 
   // Avvio il ricaricamento dati lato Qlik
   await QlikStartEtlFile("Consegnato");
@@ -725,6 +792,8 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
   } catch (error) {
     logger.error("❌ Errore nell'invio dell'email:", error);
   }
+
+  process.exit(0);
 
   return true;
 }
@@ -2302,13 +2371,9 @@ async function elaboraListDistr(
   logger.info("🚀 Estrazione terminata con successo", { mail_log: true });
 
   SummaryInfos["DELTA"] = await getListiniDelta();
-
   SummaryInfos["OK"] = righeModificate;
-
   SummaryInfos["WARN"] = righeSaltate;
-
   SummaryInfos["ERROR"] = righeErrore;
-
   SummaryInfos["DATE"] = new Date();
 
   // Avvio il ricaricamento dati lato Qlik
@@ -2581,6 +2646,8 @@ async function controlloFiles() {
             // Il file non è stato riconosciuto
             default:
               logger.info("File non riconosciuto: ", file);
+
+              await moveFile(false, filePath);
           }
         }
         // Il file non è in formato CSV
@@ -2599,9 +2666,7 @@ async function controlloFiles() {
     }
   } catch (error) {
     logger.error(
-      "Errore durante la lettura della cartella",
-      csvMainDirectory,
-      error
+      `Errore durante la lettura della cartella: ${csvMainDirectory}, ${error}`
     );
   }
 

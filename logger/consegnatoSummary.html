@@ -38,55 +38,56 @@
          padding: 10px;
          margin: 5px;
          flex: 1 0 22%;
-         /* Ogni KPI occuperà il 22% della larghezza del container */
          min-width: 100px;
          text-align: center;
          border-radius: 4px;
       }
 
-      /* Riduci la dimensione del font per i titoli dei KPI */
       .kpi strong {
          font-size: 14px;
       }
 
-      /* Aggiungi spazio tra l'etichetta e il valore */
       .kpi span[id] {
          display: block;
          margin-top: 8px;
       }
 
-      /* Sezione info impianto */
-      .plant-info {
-         background-color: #f0f0f0;
-         border: 1px solid #ccc;
-         padding: 10px;
-         padding-top: 0px;
-         border-radius: 4px;
+      /* Sezione date + articoli */
+      .dates-container {
          margin-bottom: 20px;
       }
 
-      .plant-info p {
-         margin: 5px 0;
+      .dates-container .date-row {
+         display: flex;
+         flex-direction: column;
+         /* titolo sopra */
+         margin-bottom: 15px;
+         border-bottom: 1px solid #eee;
+         padding-bottom: 10px;
       }
 
-      /* Tabella per la lista dei competitor */
-      table.competitor-table {
+      .dates-container .date-label {
+         font-weight: bold;
+         color: #333;
+         margin-bottom: 8px;
+      }
+
+      .dates-container .articles-row {
+         display: flex;
+         flex-wrap: nowrap;
+         /* non fare wrapping */
          width: 100%;
-         border-collapse: collapse;
-         margin-bottom: 20px;
       }
 
-      table.competitor-table th,
-      table.competitor-table td {
-         border: 1px solid #ddd;
+      .dates-container .articles-row .kpi {
+         flex: 1 1 0;
+         /* dividono equamente */
+         min-width: 0;
+         margin: 0 5px;
          padding: 8px;
-         text-align: left;
       }
 
-      table.competitor-table th {
-         background-color: #f2f2f2;
-      }
-
+      /* Sezione per il dump del log */
       .log-dump {
          background-color: #f0f0f0;
          border: 1px solid #ccc;
@@ -96,14 +97,9 @@
          overflow-x: auto;
       }
 
-      /* Media query per schermi larghi */
       @media screen and (min-width: 1024px) {
          .container {
             max-width: 1000px;
-         }
-
-         .kpi-container {
-            flex-wrap: nowrap;
          }
       }
    </style>
@@ -111,14 +107,13 @@
 
 <body>
    <div class="container">
+
       <!-- Titolo con data dinamica -->
       <div class="header">
          <h1>Data del file: <span id="report-date">[DATA]</span></h1>
-         <h4>Delta rispetto ieri: <span style="[DELTA COLOR]" id="report-date">[VAL DELTA]</span> righe
-         </h4>
       </div>
 
-      <!-- Sezione KPI dinamici -->
+      <!-- KPI dinamici principali -->
       <div class="kpi-container">
          <div class="kpi">
             <strong>❌ Righe contenenti<br><span style="color: red;">Errori</span></strong><br>
@@ -132,6 +127,13 @@
             <strong>✅ Righe che sono state<br><span style="color: green;">Inserite / Modificate</span></strong><br>
             <span id="kpi4">[VAL CODICE 0]</span>
          </div>
+      </div>
+
+      <!-- SEZIONE DATE + KPI PER ARTICOLO -->
+      <div class="dates-container">
+         <!-- LOOP START: per ogni elemento del payload -->
+         [LOOP]
+         <!-- LOOP END -->
       </div>
 
       <!-- Sezione per il dump del log -->

@@ -20,6 +20,7 @@ export async function sendLogSummary(
   let templatePath: string;
   let deltaColor: string = "";
   let formattedDelta: string = "";
+  let htmlLoop: string = "";
 
   switch (fileType) {
     case "Ordinato":
@@ -70,6 +71,157 @@ export async function sendLogSummary(
         "VAL CODICE 0": SummaryInfos["OK"] ?? 0,
         "VAL CODICE 1": SummaryInfos["ERROR"] ?? 0,
         "VAL CODICE 2": SummaryInfos["WARN"] ?? 0,
+        //   "LISTA CAMBIO GESTIONE": cambioGestioneHtml,
+        "LOG DUMP": logSummary || "Nessun log disponibile",
+      };
+
+      break;
+
+    case "Trading Area":
+      // Carica il template HTML
+      templatePath = path.join(__dirname, "tradingSummary.html");
+      htmlContent = fs.readFileSync(templatePath, "utf8");
+
+      // Definizione dei placeholder e dei loro valori
+      replacements = {
+        DATA: new Date(SummaryInfos["DATE"]).toLocaleString("it-IT", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+        }),
+        "VAL CODICE 0": SummaryInfos["OK"] ?? 0,
+        "VAL CODICE 1": SummaryInfos["ERROR"] ?? 0,
+        "VAL CODICE 2": SummaryInfos["WARN"] ?? 0,
+        //   "LISTA CAMBIO GESTIONE": cambioGestioneHtml,
+        "LOG DUMP": logSummary || "Nessun log disponibile",
+      };
+
+      break;
+
+    case "Carte Credito":
+      // Carica il template HTML
+      templatePath = path.join(__dirname, "creditoSummary.html");
+      htmlContent = fs.readFileSync(templatePath, "utf8");
+
+      // Definizione dei placeholder e dei loro valori
+      replacements = {
+        DATA: new Date(SummaryInfos["DATE"]).toLocaleString("it-IT", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+        }),
+        "VAL CODICE 0": SummaryInfos["OK"] ?? 0,
+        "VAL CODICE 1": SummaryInfos["ERROR"] ?? 0,
+        "VAL CODICE 2": SummaryInfos["WARN"] ?? 0,
+        //   "LISTA CAMBIO GESTIONE": cambioGestioneHtml,
+        "LOG DUMP": logSummary || "Nessun log disponibile",
+      };
+
+      break;
+
+    case "Listino":
+      // Carica il template HTML
+      templatePath = path.join(__dirname, "listinoSummary.html");
+      htmlContent = fs.readFileSync(templatePath, "utf8");
+
+      if (Number(SummaryInfos["DELTA"]) > 0) {
+        formattedDelta = `+${Number(SummaryInfos["DELTA"])}`;
+        deltaColor = "color: green;";
+      } else if (Number(SummaryInfos["DELTA"]) < 0) {
+        formattedDelta = `${Number(SummaryInfos["DELTA"])}`; // negativo già ha il segno
+        deltaColor = "color: red;";
+      } else {
+        formattedDelta = "0";
+      }
+
+      // Definizione dei placeholder e dei loro valori
+      replacements = {
+        DATA: new Date(SummaryInfos["DATE"]).toLocaleString("it-IT", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+        }),
+        "VAL CODICE 0": SummaryInfos["OK"] ?? 0,
+        "VAL CODICE 1": SummaryInfos["ERROR"] ?? 0,
+        "VAL CODICE 2": SummaryInfos["WARN"] ?? 0,
+        "VAL DELTA": formattedDelta ?? "N/A",
+        "DELTA COLOR": deltaColor,
+        //   "LISTA CAMBIO GESTIONE": cambioGestioneHtml,
+        "LOG DUMP": logSummary || "Nessun log disponibile",
+      };
+
+      break;
+
+    case "Consegnato":
+      // Carica il template HTML
+      templatePath = path.join(__dirname, "consegnatoSummary.html");
+      htmlContent = fs.readFileSync(templatePath, "utf8");
+
+      const list = SummaryInfos["LIST"] as unknown as any[];
+
+      const htmlLoop = list
+        .map(
+          (item: any) => `
+    <div class="date-row">
+      <div class="date-label">
+        ${item.date}
+        ${
+          item.delta !== 0
+            ? `
+          <span style="
+            margin-left: 8px;
+            font-weight: bold;
+            color: ${item.delta > 0 ? "green" : "red"};
+          ">
+            ${item.delta > 0 ? "+" : ""}${item.delta}
+          </span>
+        `
+            : ""
+        }
+      </div>
+      <div class="articles-row">
+        ${(item.prods as unknown as any[])
+          .filter((p: any) => p.ok !== 0 || p.warn !== 0 || p.err !== 0)
+          .map(
+            (p: any) => `
+            <div class="kpi">
+              <strong>${p.article}</strong>
+              ${
+                p.ok !== 0
+                  ? `<span>✅ <span style="color: green;">${p.ok}</span></span>`
+                  : ""
+              }
+              ${
+                p.warn !== 0
+                  ? `<span>⚠️ <span style="color: darkorange;">${p.warn}</span></span>`
+                  : ""
+              }
+              ${
+                p.err !== 0
+                  ? `<span>❌ <span style="color: red;">${p.err}</span></span>`
+                  : ""
+              }
+            </div>
+          `
+          )
+          .join("")}
+      </div>
+    </div>
+  `
+        )
+        .join("");
+
+      // Definizione dei placeholder e dei loro valori
+      replacements = {
+        DATA: new Date(SummaryInfos["DATE"]).toLocaleString("it-IT", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+        }),
+        "VAL CODICE 0": SummaryInfos["OK"] ?? 0,
+        "VAL CODICE 1": SummaryInfos["ERROR"] ?? 0,
+        "VAL CODICE 2": SummaryInfos["WARN"] ?? 0,
+        LOOP: htmlLoop,
         //   "LISTA CAMBIO GESTIONE": cambioGestioneHtml,
         "LOG DUMP": logSummary || "Nessun log disponibile",
       };
