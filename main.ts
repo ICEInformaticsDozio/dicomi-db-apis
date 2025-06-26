@@ -760,6 +760,8 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
     }
   }
 
+  //Ciao
+
   elencoDate.sort(
     (a: any, b: any) => parseKey(b.date).getTime() - parseKey(a.date).getTime()
   );
@@ -792,7 +794,7 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
   } catch (error) {
     logger.error("❌ Errore nell'invio dell'email:", error);
   }
-  
+
   return true;
 }
 async function upsertConsegnato(
